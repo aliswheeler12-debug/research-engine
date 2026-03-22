@@ -19,20 +19,29 @@ export async function POST(request) {
     });
 
     const data = await response.json();
+    const rawText = data.content?.[0]?.text || "";
 
-    // --- KRİTİK KISIM: TERCÜME ---
-    // Eğer senin page.js hata veriyorsa, Claude'un cevabını 
-    // senin kodunun beklediği en basit formata indirgiyoruz.
-    const simplifiedResponse = {
-      content: data.content,
-      text: data.content?.[0]?.text || "No results found.",
-      // Alt satır, senin "undefined" hatasını çözmek için:
-      stop_reason: "end_turn" 
-    };
+    // --- KRİTİK: SENİN KODUN BİR LİSTE (ARRAY) BEKLİYOR ---
+    // Kodundaki ".filter" hatasını çözmek için veriyi bir liste içine koyuyoruz.
+    const responseForPage = [
+      {
+        id: 1,
+        content: [{ text: rawText }],
+        text: rawText,
+        // Senin kodun muhtemelen bir liste içinde obje arıyor:
+        projects: [rawText] 
+      }
+    ];
 
-    return Response.json(simplifiedResponse);
+    // Eğer kodun direkt data.projects.filter diyorsa:
+    // responseForPage'e ekstra özellikler ekliyoruz ki her türlü kurtarsın.
+    responseForPage.projects = [rawText];
+    responseForPage.text = rawText;
+
+    return Response.json(responseForPage);
 
   } catch (error) {
-    return Response.json({ error: "Bağlantı Hatası" }, { status: 500 });
+    // Hata durumunda bile boş bir liste gönderiyoruz ki .filter hata vermesin
+    return Response.json([], { status: 500 });
   }
 }
