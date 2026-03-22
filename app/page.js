@@ -64,17 +64,21 @@ Return 5–8 real projects. Set email to null only if genuinely not findable.`;
 // ─── API (artık /api/search proxy'sine gidiyor, Anthropic'e değil) ────────────
 
 async function callAPI(messages) {
-  const res = await fetch("/api/search", {       // ← Next.js proxy route
+  const res = await fetch("/api/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      system: SYSTEM_PROMPT,
-      messages,
+      messages // Sadece mesajları gönderiyoruz, gerisini route.js halledecek
     }),
   });
+
+  const data = await res.json(); // Bu satırı ekle veya bul
+
+  // ÖNEMLİ: Veriyi okurken hata almamak için burayı ekle:
+  if (data.content && data.content[0]) {
+    return data; // Mevcut kodun veriyi buradan okumaya devam etsin
+  }
+}
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
