@@ -68,7 +68,7 @@ async function callAPI(messages) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-3-haiku-20240307",   // ← Haiku: daha hızlı, daha ucuz
+      model: "claude-haiku-4-5-20251001",   // ← Haiku 4.5: ucuz + web search destekli
       max_tokens: 4000,
       tools: [{ type: "web_search_20250305", name: "web_search" }],
       system: SYSTEM_PROMPT,
