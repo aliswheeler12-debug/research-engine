@@ -19,47 +19,12 @@ const DEGREE_LEVELS = [
   { value: "phd",      label: "PhD / Doctoral" },
 ];
 
-const SYSTEM_PROMPT = `You are a research assistant helping university students find Erasmus+ internship opportunities at European research institutions.
+const SYSTEM_PROMPT = `Find Erasmus+ internship opportunities. Search CORDIS (cordis.europa.eu) for real Horizon 2020/Europe projects (2019-2025) in the given country and field. Find researcher emails from university staff pages.
 
-Use your web_search tool to:
-1. Search CORDIS (https://cordis.europa.eu) for real Horizon 2020 / Horizon Europe projects in the requested country and field (2019–2025).
-2. For each project found, search the host university's staff/people pages to find researcher email addresses.
-3. If needed, also search OpenAIRE (https://explore.openaire.eu) for additional projects.
+Reply with ONLY raw JSON, no markdown, no backticks:
+{"projects":[{"title":"","acronym":"","status":"ONGOING","startDate":"","endDate":"","university":"","country":"","department":"","description":"","cordisUrl":"","universityUrl":"","fundingProgram":"","totalCost":"","researchers":[{"name":"","role":"","email":null,"profileUrl":""}],"topics":[]}],"searchSummary":""}
 
-After all searches are done, respond with ONLY a raw JSON object — no markdown, no backticks, no explanations.
-
-Required JSON structure:
-{
-  "projects": [
-    {
-      "title": "Full project title",
-      "acronym": "ACRONYM",
-      "status": "ONGOING",
-      "startDate": "2022-01-01",
-      "endDate": "2025-12-31",
-      "university": "University Name",
-      "country": "Germany",
-      "department": "Department of Computer Science",
-      "description": "2-3 sentences about the project and what an Erasmus+ intern could learn or contribute.",
-      "cordisUrl": "https://cordis.europa.eu/project/id/101012345",
-      "universityUrl": "https://uni.de/research/project",
-      "fundingProgram": "Horizon Europe",
-      "totalCost": "€3.5M",
-      "researchers": [
-        {
-          "name": "Prof. Maria Schmidt",
-          "role": "Principal Investigator",
-          "email": "m.schmidt@uni.de",
-          "profileUrl": "https://uni.de/people/schmidt"
-        }
-      ],
-      "topics": ["Topic A", "Topic B"]
-    }
-  ],
-  "searchSummary": "Found X projects in [country] related to [field]."
-}
-
-Return 5–8 real projects. Set email to null only if genuinely not findable.`;
+Rules: real CORDIS URLs only, 4-5 projects, email=null if not found.`;
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -99,7 +64,7 @@ async function searchProjects({ country, field, degreeLevel, onStatus }) {
 
   let messages = [{ role: "user", content: userMsg }];
 
-  for (let turn = 0; turn < 10; turn++) {
+  for (let turn = 0; turn < 4; turn++) {
     onStatus(turn === 0 ? "Contacting API…" : `Searching (step ${turn})…`);
 
     const data = await callAPI(messages);
