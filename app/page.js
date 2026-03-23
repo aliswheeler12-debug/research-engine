@@ -61,14 +61,14 @@ Required JSON structure:
 
 Return 5–8 real projects. Set email to null only if genuinely not findable.`;
 
-// ─── API (artık /api/search proxy'sine gidiyor, Anthropic'e değil) ────────────
+// ─── API ──────────────────────────────────────────────────────────────────────
 
 async function callAPI(messages) {
-  const res = await fetch("/api/search", {       // ← Next.js proxy route
+  const res = await fetch("/api/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-3-haiku-20240307",   // ← Haiku: daha hızlı, daha ucuz
       max_tokens: 4000,
       tools: [{ type: "web_search_20250305", name: "web_search" }],
       system: SYSTEM_PROMPT,
@@ -210,6 +210,7 @@ function Badge({ status }) {
 function ResearcherRow({ r }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
+    if (!r.email) return;
     navigator.clipboard.writeText(r.email).then(() => {
       setCopied(true); setTimeout(() => setCopied(false), 2000);
     });
@@ -327,7 +328,7 @@ function Spinner({ status }) {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{fontSize:14, fontWeight:500}}>{status}</div>
       <div style={{fontSize:12, color:"#94a3b8", marginTop:5}}>
-        Searching CORDIS, university pages and OpenAIRE — this takes 30–60 seconds.
+        Searching CORDIS, university pages and OpenAIRE — this takes 20–40 seconds.
       </div>
     </div>
   );
