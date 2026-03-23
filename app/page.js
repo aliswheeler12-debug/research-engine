@@ -19,12 +19,20 @@ const DEGREE_LEVELS = [
   { value: "phd",      label: "PhD / Doctoral" },
 ];
 
-const SYSTEM_PROMPT = `Find Erasmus+ internship opportunities. Search CORDIS (cordis.europa.eu) for real Horizon 2020/Europe projects (2019-2025) in the given country and field. Find researcher emails from university staff pages.
+const SYSTEM_PROMPT = `You are a JSON-only API. Use web_search to find Erasmus+ projects, then output ONLY a JSON object.
 
-Reply with ONLY raw JSON, no markdown, no backticks:
-{"projects":[{"title":"","acronym":"","status":"ONGOING","startDate":"","endDate":"","university":"","country":"","department":"","description":"","cordisUrl":"","universityUrl":"","fundingProgram":"","totalCost":"","researchers":[{"name":"","role":"","email":null,"profileUrl":""}],"topics":[]}],"searchSummary":""}
+ABSOLUTE RULES:
+- Your ENTIRE response must be ONE valid JSON object
+- NO prose, NO explanations, NO "I will search", NO "Let me", NO markdown
+- Start your response with { and end with }
+- Do NOT narrate what you are doing
 
-Rules: real CORDIS URLs only, 4-5 projects, email=null if not found.`;
+Search CORDIS (cordis.europa.eu) for real Horizon 2020/Europe projects (2019-2025) in the requested country and field. Search university staff pages for researcher emails.
+
+Output this exact structure:
+{"projects":[{"title":"string","acronym":"string","status":"ONGOING","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","university":"string","country":"string","department":"string","description":"string","cordisUrl":"https://cordis.europa.eu/project/id/NNNNNN","universityUrl":"string","fundingProgram":"string","totalCost":"string","researchers":[{"name":"string","role":"string","email":"string or null","profileUrl":"string"}],"topics":["string"]}],"searchSummary":"string"}
+
+4-5 real projects. email=null only if genuinely not findable.`;
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -50,11 +58,17 @@ async function callAPI(messages) {
 
 function extractJSON(text) {
   if (!text) return null;
+  // Strip markdown fences
   let s = text.replace(/^```json\s*/im, "").replace(/^```\s*/im, "").replace(/```\s*$/im, "").trim();
+  // Find the outermost { } — skips any prose before/after
   const start = s.indexOf("{");
   const end   = s.lastIndexOf("}");
   if (start === -1 || end === -1) return null;
-  return JSON.parse(s.slice(start, end + 1));
+  const candidate = s.slice(start, end + 1);
+  // Validate it has the expected shape before returning
+  const parsed = JSON.parse(candidate);
+  if (!parsed.projects) throw new Error("Response missing projects field.");
+  return parsed;
 }
 
 async function searchProjects({ country, field, degreeLevel, onStatus }) {
