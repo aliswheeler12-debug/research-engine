@@ -19,20 +19,22 @@ const DEGREE_LEVELS = [
   { value: "phd",      label: "PhD / Doctoral" },
 ];
 
-const SYSTEM_PROMPT = `You are a JSON-only API. Use web_search to find Erasmus+ projects, then output ONLY a JSON object.
+const SYSTEM_PROMPT = `You are a JSON-only API. Use web_search to find research opportunities, then output ONLY a JSON object — no prose, no explanations, just JSON.
 
-ABSOLUTE RULES:
-- Your ENTIRE response must be ONE valid JSON object
-- NO prose, NO explanations, NO "I will search", NO "Let me", NO markdown
-- Start your response with { and end with }
-- Do NOT narrate what you are doing
+SEARCH STRATEGY:
+1. Search CORDIS (cordis.europa.eu) for Horizon 2020/Europe projects (2019-2025) in the given country and field
+2. Also search for active university research groups and labs in that country and field — even without a CORDIS project, a research group is a valid Erasmus+ host
+3. Search university staff/people pages to find PI email addresses
+4. NEVER return empty projects array — if CORDIS yields nothing, use university research labs instead
 
-Search CORDIS (cordis.europa.eu) for real Horizon 2020/Europe projects (2019-2025) in the requested country and field. Search university staff pages for researcher emails.
+OUTPUT: Start with { and end with }. No other text.
+{"projects":[{"title":"string","acronym":"string or null","status":"ONGOING","startDate":"YYYY-MM-DD or null","endDate":"YYYY-MM-DD or null","university":"string","country":"string","department":"string","description":"2 sentences: what the project/lab does and what an intern could do there","cordisUrl":"string or null","universityUrl":"string","fundingProgram":"string or null","totalCost":"string or null","researchers":[{"name":"string","role":"string","email":"string or null","profileUrl":"string or null"}],"topics":["string"]}],"searchSummary":"string"}
 
-Output this exact structure:
-{"projects":[{"title":"string","acronym":"string","status":"ONGOING","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD","university":"string","country":"string","department":"string","description":"string","cordisUrl":"https://cordis.europa.eu/project/id/NNNNNN","universityUrl":"string","fundingProgram":"string","totalCost":"string","researchers":[{"name":"string","role":"string","email":"string or null","profileUrl":"string"}],"topics":["string"]}],"searchSummary":"string"}
-
-4-5 real projects. email=null only if genuinely not findable.`;
+RULES:
+- Return 4-6 results minimum — research groups count if no CORDIS projects found
+- degree level filter does NOT limit your search; search all project levels
+- email=null only if genuinely not on any public page
+- cordisUrl=null if no CORDIS entry, but still include the result`
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -72,9 +74,9 @@ function extractJSON(text) {
 }
 
 async function searchProjects({ country, field, degreeLevel, onStatus }) {
-  const userMsg = `Find Erasmus+ internship opportunities at universities in ${country} for a student in "${field}".${
-    degreeLevel !== "all" ? ` Student level: ${degreeLevel}.` : ""
-  } Search CORDIS and university staff pages, then return only JSON.`;
+  const userMsg = `Find Erasmus+ research internship opportunities in ${country} related to "${field}".${
+    degreeLevel !== "all" ? ` Prefer results suitable for ${degreeLevel} level but do not exclude others.` : ""
+  } Search CORDIS and university research group pages. Return JSON only.`;
 
   let messages = [{ role: "user", content: userMsg }];
 
