@@ -2,8 +2,6 @@
 
 import { useState, useCallback } from "react";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const EU_COUNTRIES = [
   "Austria","Belgium","Bulgaria","Croatia","Cyprus","Czech Republic",
   "Denmark","Estonia","Finland","France","Germany","Greece","Hungary",
@@ -21,36 +19,36 @@ const DEGREE_LEVELS = [
 
 const SYSTEM_PROMPT = `You are a JSON-only API. Use web_search to find research opportunities, then output ONLY a JSON object — no prose, no explanations, just JSON.
 
-SEARCH STRATEGY:
-1. Search CORDIS (cordis.europa.eu) for Horizon 2020/Europe projects (2019-2025) in the given country and field
-2. Also search for active university research groups and labs in that country and field — even without a CORDIS project, a research group is a valid Erasmus+ host
-3. Search university staff/people pages to find PI email addresses
-4. NEVER return empty projects array — if CORDIS yields nothing, use university research labs instead
+SEARCH STRATEGY — use ALL of these sources:
+1. CORDIS (cordis.europa.eu) — search Horizon 2020 AND Horizon Europe, include BOTH ongoing AND completed projects from 2020 onwards
+2. OpenAIRE (explore.openaire.eu) — additional EU-funded projects
+3. University research group/lab pages — valid Erasmus+ hosts even without EU funding
+4. Search "[field] research group [country] university" to find active labs directly
 
-OUTPUT: Start with { and end with }. No other text.
-{"projects":[{"title":"string","acronym":"string or null","status":"ONGOING","startDate":"YYYY-MM-DD or null","endDate":"YYYY-MM-DD or null","university":"string","country":"string","department":"string","description":"2 sentences: what the project/lab does and what an intern could do there","cordisUrl":"string or null","universityUrl":"string","fundingProgram":"string or null","totalCost":"string or null","researchers":[{"name":"string","role":"string","email":"string or null","profileUrl":"string or null"}],"topics":["string"]}],"searchSummary":"string"}
+INCLUDE BOTH:
+- ONGOING projects (status: "ONGOING")
+- Recently COMPLETED projects from 2021 onwards (status: "COMPLETED") — the PI still works there and can still host interns
 
-RULES:
-- Return 4-6 results minimum — research groups count if no CORDIS projects found
-- degree level filter does NOT limit your search; search all project levels
-- email=null only if genuinely not on any public page
-- cordisUrl=null if no CORDIS entry, but still include the result`
+NEVER return empty results. If CORDIS has nothing, use university research labs.
+degree level does NOT filter results — search all levels.
 
-// ─── API ──────────────────────────────────────────────────────────────────────
+OUTPUT: your entire response must be only this JSON, starting with { and ending with }:
+{"projects":[{"title":"string","acronym":"string or null","status":"ONGOING or COMPLETED","startDate":"YYYY-MM-DD or null","endDate":"YYYY-MM-DD or null","university":"string","country":"string","department":"string","description":"2 sentences: what the project/lab does and what an Erasmus+ intern could contribute","cordisUrl":"string or null","universityUrl":"string","fundingProgram":"string or null","totalCost":"string or null","researchers":[{"name":"string","role":"string","email":"string or null","profileUrl":"string or null"}],"topics":["string"]}],"searchSummary":"string"}
+
+Return 5-7 results. email=null only if truly not on any public page. cordisUrl=null is fine for lab results.`;
 
 async function callAPI(messages) {
   const res = await fetch("/api/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",   // ← Haiku 4.5: ucuz + web search destekli
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 4000,
       tools: [{ type: "web_search_20250305", name: "web_search" }],
       system: SYSTEM_PROMPT,
       messages,
     }),
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err?.error?.message || `API error ${res.status}`);
@@ -60,41 +58,35 @@ async function callAPI(messages) {
 
 function extractJSON(text) {
   if (!text) return null;
-  // Strip markdown fences
-  let s = text.replace(/^```json\s*/im, "").replace(/^```\s*/im, "").replace(/```\s*$/im, "").trim();
-  // Find the outermost { } — skips any prose before/after
+  let s = text.replace(/^```json\s*/im,"").replace(/^```\s*/im,"").replace(/```\s*$/im,"").trim();
   const start = s.indexOf("{");
   const end   = s.lastIndexOf("}");
   if (start === -1 || end === -1) return null;
-  const candidate = s.slice(start, end + 1);
-  // Validate it has the expected shape before returning
-  const parsed = JSON.parse(candidate);
+  const parsed = JSON.parse(s.slice(start, end + 1));
   if (!parsed.projects) throw new Error("Response missing projects field.");
   return parsed;
 }
 
 async function searchProjects({ country, field, degreeLevel, onStatus }) {
-  const userMsg = `Find Erasmus+ research internship opportunities in ${country} related to "${field}".${
-    degreeLevel !== "all" ? ` Prefer results suitable for ${degreeLevel} level but do not exclude others.` : ""
-  } Search CORDIS and university research group pages. Return JSON only.`;
+  const userMsg = `Find Erasmus+ internship opportunities in ${country} for the field "${field}".${
+    degreeLevel !== "all" ? ` Prefer ${degreeLevel} level but include all levels.` : ""
+  } Search CORDIS (ongoing + completed 2021-2025), OpenAIRE, and university research group pages. Include recently completed projects — the PI is still contactable. Return JSON only.`;
 
   let messages = [{ role: "user", content: userMsg }];
 
   for (let turn = 0; turn < 4; turn++) {
-    onStatus(turn === 0 ? "Contacting API…" : `Searching (step ${turn})…`);
-
+    onStatus(turn === 0 ? "Searching projects…" : `Searching (step ${turn + 1})…`);
     const data = await callAPI(messages);
 
     if (data.stop_reason === "end_turn") {
       const text = data.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
       const parsed = extractJSON(text);
-      if (!parsed) throw new Error(`Could not parse JSON.\n\nRaw response:\n${text.slice(0, 400)}`);
+      if (!parsed) throw new Error(`Could not parse results.\n\nRaw response:\n${text.slice(0, 400)}`);
       return parsed;
     }
 
     if (data.stop_reason === "tool_use") {
       messages.push({ role: "assistant", content: data.content });
-
       const toolResults = data.content
         .filter(b => b.type === "tool_use")
         .map(toolUse => {
@@ -107,43 +99,37 @@ async function searchProjects({ country, field, degreeLevel, onStatus }) {
             content: resultBlock?.content ?? [{ type: "text", text: "Search executed." }],
           };
         });
-
       messages.push({ role: "user", content: toolResults });
       continue;
     }
 
     throw new Error(`Unexpected stop_reason: ${data.stop_reason}`);
   }
-
   throw new Error("Too many search steps. Please try again.");
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const labelStyle = {
-  display: "block", fontSize: 12, fontWeight: 600,
-  color: "#475569", marginBottom: 6, letterSpacing: "0.01em",
+  display:"block", fontSize:12, fontWeight:600,
+  color:"#475569", marginBottom:6, letterSpacing:"0.01em",
 };
 const inputStyle = {
-  padding: "10px 12px", borderRadius: 8, border: "1px solid #e2e8f0",
-  fontSize: 14, background: "white", width: "100%",
-  boxSizing: "border-box", color: "#1e293b",
+  padding:"10px 12px", borderRadius:8, border:"1px solid #e2e8f0",
+  fontSize:14, background:"white", width:"100%",
+  boxSizing:"border-box", color:"#1e293b",
 };
 function btn(bg, color, extra = {}) {
   return {
-    fontSize: 12, padding: "5px 11px", background: bg, color,
-    borderRadius: 6, textDecoration: "none", fontWeight: 500,
-    border: "none", cursor: "pointer", display: "inline-flex",
-    alignItems: "center", gap: 4, whiteSpace: "nowrap", ...extra,
+    fontSize:12, padding:"5px 11px", background:bg, color,
+    borderRadius:6, textDecoration:"none", fontWeight:500,
+    border:"none", cursor:"pointer", display:"inline-flex",
+    alignItems:"center", gap:4, whiteSpace:"nowrap", ...extra,
   };
 }
-
-// ─── Academic SVG ─────────────────────────────────────────────────────────────
 
 function AcademicIllustration() {
   return (
     <svg viewBox="0 0 260 140" xmlns="http://www.w3.org/2000/svg"
-      style={{ width: 180, height: 95, opacity: 0.92, flexShrink: 0 }}>
+      style={{ width:180, height:95, opacity:0.92, flexShrink:0 }}>
       <circle cx="50" cy="70" r="36" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="1.5"/>
       {[0,1,2,3,4,5,6,7,8,9,10,11].map(i => {
         const a = (i*30-90)*Math.PI/180;
@@ -173,14 +159,12 @@ function AcademicIllustration() {
   );
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
-
 function Badge({ status }) {
   const on = status === "ONGOING";
   return (
     <span style={{
       fontSize:10, fontWeight:700, letterSpacing:"0.06em", padding:"3px 9px",
-      borderRadius:20, background: on?"#dcfce7":"#dbeafe", color: on?"#15803d":"#1d4ed8",
+      borderRadius:20, background:on?"#dcfce7":"#dbeafe", color:on?"#15803d":"#1d4ed8",
       textTransform:"uppercase", flexShrink:0,
     }}>
       {on ? "● Ongoing" : "✓ Completed"}
@@ -309,13 +293,11 @@ function Spinner({ status }) {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{fontSize:14, fontWeight:500}}>{status}</div>
       <div style={{fontSize:12, color:"#94a3b8", marginTop:5}}>
-        Searching CORDIS, university pages and OpenAIRE — this takes 20–40 seconds.
+        Searching CORDIS, OpenAIRE and university pages — 20–40 seconds.
       </div>
     </div>
   );
 }
-
-// ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const [country,  setCountry]  = useState("");
@@ -357,11 +339,14 @@ export default function Home() {
             <h1 style={{margin:"0 0 8px", fontSize:26, fontWeight:800, letterSpacing:"-0.03em", lineHeight:1.2}}>
               Find Active Research<br/>Projects in Europe
             </h1>
-            <p style={{margin:"0 0 18px", fontSize:13, opacity:0.7, lineHeight:1.6}}>
-              Search CORDIS and OpenAIRE for Horizon-funded projects — see who&apos;s leading them and how to reach them.
+            <p style={{margin:"0 0 6px", fontSize:13, opacity:0.7, lineHeight:1.6}}>
+              Search CORDIS, OpenAIRE and university labs — ongoing and recently completed.
+            </p>
+            <p style={{margin:"0 0 18px", fontSize:12, opacity:0.45, fontStyle:"italic"}}>
+              They published the research. We found their inbox.
             </p>
             <div style={{display:"flex", gap:14, flexWrap:"wrap"}}>
-              {["✉ Researcher emails","📋 CORDIS verified","🎓 Erasmus+ internship ready"].map((t,i)=>(
+              {["✉ Researcher emails","📋 CORDIS + OpenAIRE","🏛 University labs","🎓 Erasmus+ ready"].map((t,i)=>(
                 <span key={i} style={{fontSize:12, opacity:0.8, fontWeight:500}}>{t}</span>
               ))}
             </div>
@@ -448,7 +433,8 @@ export default function Home() {
               <ProjectCard key={i} project={p} expanded={expanded===i} onToggle={()=>setExpanded(expanded===i?null:i)}/>
             ))}
             <div style={{marginTop:20, padding:14, background:"#fffbeb", border:"1px solid #fed7aa", borderRadius:10, fontSize:12, color:"#92400e", lineHeight:1.7}}>
-              📌 <strong>Next step:</strong> Click &quot;CORDIS Project Page&quot; to verify the project, then email the researcher — mention you found the project via CORDIS and are seeking an <strong>Erasmus+ traineeship</strong> placement.
+              📌 <strong>Completed projects:</strong> Even if a project ended recently, the PI is still at the university and can host Erasmus+ interns.
+              Email them mentioning you found their project on CORDIS and are seeking an <strong>Erasmus+ traineeship</strong>.
             </div>
           </>
         )}
